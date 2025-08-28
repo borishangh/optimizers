@@ -1,5 +1,7 @@
 const canvas = document.getElementById("canvas")
 const canvas2 = document.getElementById("canvas2")
+const dpr = window.devicePixelRatio || 1;
+
 const ctx = canvas.getContext("2d")
 const ctx2 = canvas2.getContext("2d")
 const optimMethod = document.getElementById("optimMethod")
@@ -26,28 +28,36 @@ const beta2Input = document.getElementById("beta2");
 const beta2Value = document.getElementById("beta2Value");
 const beta2Group = document.getElementById("beta2Group");
 
-const SIZE = 500
-canvas.height = SIZE; canvas.width = SIZE
-canvas2.height = SIZE; canvas2.width = SIZE
+const SIZE = Math.min(500, 0.9*window.innerWidth)
 
-const width = SIZE, height = SIZE;
+canvas.style.width = `${SIZE}px`; canvas.style.height = `${SIZE}px`;
+canvas2.style.width = `${SIZE}px`; canvas2.style.height = `${SIZE}px`;
+
+canvas.width = ~~(SIZE * dpr); canvas.height = ~~(SIZE * dpr);
+canvas2.width = ~~(SIZE * dpr); canvas2.height = ~~(SIZE * dpr);
+
+ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+const devW = canvas.width, devH = canvas.height; // device-pixel dims
+const width = SIZE, height = SIZE;                // CSS dims (used elsewhere)
 
 const to_px = x => (x + 2) * 0.25 * SIZE;
 const to_real = px => (px / SIZE) * 4 - 2;
 
 function f_default(x, y) { return x * x * x * x - 1 * x * x + 0.5 * x + y * y; }
 
-let z = new Float32Array(width * height);
+let z = new Float32Array(devW * devH);
 
 let zmin = +Infinity, zmax = -Infinity;
 function computeGrid(f) {
     zmin = +Infinity; zmax = -Infinity;
-    for (let j = 0; j < height; j++) {
-        const y = to_real(j + 0.5);
-        for (let i = 0; i < width; i++) {
-            const x = to_real(i + 0.5);
+    for (let j = 0; j < devH; j++) {
+        const y = to_real((j + 0.5) / dpr);
+        for (let i = 0; i < devW; i++) {
+            const x = to_real((i + 0.5) / dpr);
             const v = f(x, y);
-            z[j * width + i] = v;
+            z[j * devW + i] = v;
             if (v < zmin) zmin = v;
             if (v > zmax) zmax = v;
         }
@@ -56,17 +66,17 @@ function computeGrid(f) {
 
 function drawSurface(f) {
     computeGrid(f);
-    const img = ctx.createImageData(width, height);
+    const img = ctx.createImageData(devW, devH);
     const rng = (zmax - zmin) || 1e-12;
-    for (let j = 0; j < height; j++) {
-        for (let i = 0; i < width; i++) {
-            const v = z[j * width + i];
+    for (let j = 0; j < devH; j++) {
+        for (let i = 0; i < devW; i++) {
+            const v = z[j * devW + i];
             const t = (v - zmin) / rng;
             const gb = Math.round(255 * (1 - t));
-            const idx = 4 * (j * width + i);
+            const idx = 4 * (j * devW + i);
             img.data[idx + 0] = 255;
-            img.data[idx + 1] = gb * 1.2;
-            img.data[idx + 2] = gb * 1.2;
+            img.data[idx + 1] = Math.min(255, gb * 1.2);
+            img.data[idx + 2] = Math.min(255, gb * 1.2);
             img.data[idx + 3] = 255;
         }
     }
@@ -82,12 +92,12 @@ function drawLevelCurves(f, levels) {
     const eps = 1e-12;
 
     for (const level of levels) {
-        for (let j = 0; j < height - 1; j++) {
-            for (let i = 0; i < width - 1; i++) {
-                const v0 = z[j * width + i];
-                const v1 = z[j * width + (i + 1)];
-                const v2 = z[(j + 1) * width + (i + 1)];
-                const v3 = z[(j + 1) * width + i];
+        for (let j = 0; j < devH - 1; j++) {
+            for (let i = 0; i < devW - 1; i++) {
+                const v0 = z[j * devW + i];
+                const v1 = z[j * devW + (i + 1)];
+                const v2 = z[(j + 1) * devW + (i + 1)];
+                const v3 = z[(j + 1) * devW + i];
 
                 const b0 = v0 > level ? 1 : 0;
                 const b1 = v1 > level ? 2 : 0;
@@ -96,10 +106,10 @@ function drawLevelCurves(f, levels) {
                 const bits = b0 | b1 | b2 | b3;
                 if (bits === 0 || bits === 15) continue;
 
-                const c0 = { x: i + 0.5, y: j + 0.5 };
-                const c1 = { x: i + 1.5, y: j + 0.5 };
-                const c2 = { x: i + 1.5, y: j + 1.5 };
-                const c3 = { x: i + 0.5, y: j + 1.5 };
+                const c0 = { x: (i + 0.5) / dpr, y: (j + 0.5) / dpr };
+                const c1 = { x: (i + 1.5) / dpr, y: (j + 0.5) / dpr };
+                const c2 = { x: (i + 1.5) / dpr, y: (j + 1.5) / dpr };
+                const c3 = { x: (i + 0.5) / dpr, y: (j + 1.5) / dpr };
 
                 const edgeInterp = (A, B, vA, vB) => {
                     const t = (level - vA) / (vB - vA + eps);
@@ -256,16 +266,10 @@ function renderStatic(f) {
     for (let k = 1; k < nLevels; k++) levels.push(zmin + (zmax - zmin) * k / nLevels);
     drawLevelCurves(f, levels);
 
-    surfaceImage = ctx.getImageData(0, 0, SIZE, SIZE);
+    surfaceImage = ctx.getImageData(0, 0, devW, devH);
 }
 
 function updateDuringDrag(f) {
-    if (surfaceImage) ctx.putImageData(surfaceImage, 0, 0);
-    drawMarkerOnSurface(draggable);
-
-    drawAxes();
-    drawCurve(f);
-    drawMarkerOnPlot(draggable, f);
     renderCanvases(f);
     rafPending = false;
 }
